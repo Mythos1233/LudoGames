@@ -3,7 +3,7 @@
     padding: 0;
     box-sizing: border-box;
     list-style: none;
-    cursor: url('../imgs/mouse.png'), auto;
+    
 }
 
 @keyframes pulsar { 
@@ -23,6 +23,7 @@ body{
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    cursor: none;
 }
 
 .header{
@@ -196,6 +197,22 @@ main{
     font-size: 26px;
     animation: pulso 1s infinite;
 
+}
+
+#cursor-personalizado{
+    position: fixed;
+    width: 80px;
+    height: 80px;
+
+    background-image: url("../imgs/mouse.png");
+    background-size: contain;
+    background-repeat: no-repeat;
+
+    pointer-events: none;
+    z-index: 9999;
+
+    left: 0;
+    top: 0;
 }
 
 @keyframes pulso{

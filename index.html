@@ -40,6 +40,18 @@
     <p class="texto-footer leitura">© Todos os Direitos reservados para LudoGames.</p>
 </main>
 
+
+
+
+
+
+
+
+
+
+
+
+
 <div vw class="enabled">
     <div vw-access-button class="active"></div>
     <div vw-plugin-wrapper class="wrapper">
@@ -48,11 +60,6 @@
 </div>
 
 <script src="https://vlibras.gov.br/app/vlibras-plugin.js"></script>
-
-<script>
-
-    
-</script>
 
 <script src="script.js"></script>
 
@@ -64,6 +71,25 @@
 </div>
 
 </div>
+
+<div id="cursor-personalizado"></div>
+
+    <script>
+
+    window.addEventListener("DOMContentLoaded", function(){
+
+    const cursor = document.getElementById("cursor-personalizado");
+
+    document.addEventListener("mousemove", function(e){
+
+        cursor.style.left = (e.clientX - 40) + "px";
+        cursor.style.top = (e.clientY - 40) + "px";
+
+    });
+
+});
+
+</script>
 
 </body>
 </html>
