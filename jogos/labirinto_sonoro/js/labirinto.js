@@ -1,6 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // LABIRINTO SONORO — Lógica do jogo
 // Para crianças cegas — orientação espacial 100% por áudio
+// Personagem: 🐤 Passarinho | Objetivo: 🏡 Casinha
 // ════════════════════════════════════════════════════════════════
 
 (function () {
@@ -39,17 +40,73 @@ const gameArea   = document.getElementById('gameArea');
 const proxPreench = document.getElementById('proximidadePreenchimento');
 const msgFinal   = document.getElementById('mensagem-final');
 
-// ─── Narração segura ─────────────────────────────────────────────
+// ─── Narração (usa falar() do site.js se disponível, senão Web Speech direto) ─
+let tokenFala = 0;
+
 function falarSeguro(texto, callback) {
-    if (typeof window.falar === 'function') {
-        window.falar(texto, callback);
-    } else if (typeof callback === 'function') {
-        callback();
+    // Incrementa token — invalida callbacks de falas antigas
+    tokenFala++;
+    const meuToken = tokenFala;
+
+    // Tenta usar falar() do site.js (global)
+    if (typeof falar === 'function') {
+        falar(texto, function() {
+            if (meuToken === tokenFala && typeof callback === 'function') {
+                callback();
+            }
+        });
+        return;
     }
+
+    // Fallback: Web Speech API direto
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utt = new SpeechSynthesisUtterance(texto);
+        utt.lang = 'pt-BR';
+        // Tenta usar velocidade do site.js se existir
+        if (typeof config !== 'undefined' && config.velocidade) {
+            utt.rate = config.velocidade;
+        } else {
+            utt.rate = 1;
+        }
+        utt.onend = function() {
+            // Chrome bug: onend dispara antes da fala terminar de verdade
+            // Piso mínimo de tempo baseado em caracteres
+            const minMs = Math.max(800, texto.length * 55);
+            const elapsed = Date.now() - startTime;
+            const wait = Math.max(0, minMs - elapsed);
+            setTimeout(function() {
+                if (meuToken === tokenFala && typeof callback === 'function') {
+                    callback();
+                }
+            }, wait);
+        };
+        const startTime = Date.now();
+        window.speechSynthesis.speak(utt);
+        return;
+    }
+
+    // Sem suporte a fala — só chama callback
+    if (typeof callback === 'function') callback();
 }
+
 function mostrarLegenda(texto) {
-    if (typeof window.mostrarLegendaBox === 'function') {
-        window.mostrarLegendaBox(texto);
+    // Tenta usar a função do site.js se existir
+    if (typeof mostrarLegendaBox === 'function') {
+        mostrarLegendaBox(texto);
+        return;
+    }
+
+    // Fallback: manipula o DOM diretamente
+    const span = document.getElementById('texto-legenda');
+    const box = document.querySelector('.legenda-box');
+    if (span && box) {
+        span.textContent = texto;
+        box.classList.add('ativa');
+        clearTimeout(box._timerLegenda);
+        box._timerLegenda = setTimeout(function() {
+            box.classList.remove('ativa');
+        }, 4000);
     }
 }
 
@@ -71,11 +128,12 @@ function beep(freq, dur, tipo, vol) {
     } catch (e) {}
 }
 
-// Sons
-const wallFreqs = { up: 100, right: 120, down: 140, left: 160 };
-
 function somMover() { beep(600, 0.03, 'sine', 0.05); }
-function somParede(dir) { beep(wallFreqs[dir] || 120, 0.25, 'sawtooth', 0.1); }
+function somParede(dir) {
+    // Cada direção tem um tom grave diferente — a criança aprende a reconhecer
+    const freqs = { up: 100, right: 120, down: 140, left: 160 };
+    beep(freqs[dir] || 120, 0.25, 'sawtooth', 0.1);
+}
 function somSonar() {
     try {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -112,7 +170,6 @@ function gerarLabirinto(tam) {
     while (stack.length > 0) {
         const [x, y] = stack[stack.length - 1];
         const dirs = [[0,-2],[2,0],[0,2],[-2,0]];
-        // Shuffle
         for (let i = dirs.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
@@ -131,7 +188,6 @@ function gerarLabirinto(tam) {
         if (!carved) stack.pop();
     }
 
-    // Garantir saída acessível
     m[tam-1][tam-1] = 0;
     if (tam > 1 && m[tam-2][tam-1] === 1 && m[tam-1][tam-2] === 1) {
         m[tam-2][tam-1] = 0;
@@ -139,7 +195,7 @@ function gerarLabirinto(tam) {
     return m;
 }
 
-// ─── Renderizar preview visual ───────────────────────────────────
+// ─── Renderizar preview visual (tela de fase) ───────────────────
 function renderPreview() {
     mazePreview.innerHTML = '';
     mazePreview.style.gridTemplateColumns = 'repeat(' + tamanho + ', 1fr)';
@@ -149,8 +205,14 @@ function renderPreview() {
         for (let x = 0; x < tamanho; x++) {
             const cell = document.createElement('div');
             cell.className = 'maze-cell ' + (maze[y][x] === 0 ? 'path' : 'wall');
-            if (x === 0 && y === 0) cell.classList.add('start');
-            if (x === tamanho - 1 && y === tamanho - 1) cell.classList.add('exit');
+            if (x === 0 && y === 0) {
+                cell.classList.add('start');
+                cell.classList.remove('path');
+            }
+            if (x === tamanho - 1 && y === tamanho - 1) {
+                cell.classList.add('exit');
+                cell.classList.remove('path');
+            }
             mazePreview.appendChild(cell);
         }
     }
@@ -162,7 +224,7 @@ function trocarTela(nova) {
     nova.classList.remove('escondido');
 }
 
-// ─── Iniciar fase (gera labirinto + mostra preview) ─────────────
+// ─── Iniciar fase ────────────────────────────────────────────────
 function iniciarFase() {
     const f = fases[faseAtual];
     tamanho = f.tamanho;
@@ -175,7 +237,10 @@ function iniciarFase() {
     renderPreview();
     trocarTela(telaFase);
 
-    const frase = 'Fase ' + (faseAtual + 1) + ': labirinto ' + tamanho + ' por ' + tamanho + '. Memorize o caminho e clique em Jogar.';
+    const frase = 'Fase ' + (faseAtual + 1) + '. Labirinto ' + tamanho + ' por ' + tamanho + '. ' +
+                  'Você é o passarinho 🐤 e está no canto de cima à esquerda. ' +
+                  'A casinha 🏡 está no canto de baixo à direita. ' +
+                  'Memorize o caminho e clique em Jogar.';
     falarSeguro(frase);
     mostrarLegenda(frase);
 }
@@ -187,7 +252,9 @@ function iniciarJogoFase() {
     atualizarHUD();
     setTimeout(() => gameArea.focus(), 100);
 
-    const frase = 'Jogo iniciado. Use as setas para mover e espa\u00e7o para sonar.';
+    const frase = 'Jogo iniciado! Você é o passarinho. Use as setas para voar pelo labirinto. ' +
+                  'Pressione espaço para ouvir quais direções estão livres. ' +
+                  'Encontre a casinha!';
     falarSeguro(frase, () => {
         setTimeout(() => ativarSonar(), 500);
     });
@@ -200,9 +267,10 @@ function tentarMover(dx, dy, dir) {
     const ny = playerY + dy;
 
     if (nx < 0 || nx >= tamanho || ny < 0 || ny >= tamanho || maze[ny][nx] === 1) {
-        // Parede
+        // Bateu na parede
         somParede(dir);
-        falarSeguro('Parede!');
+        const dirNomes = { up: 'em cima', right: 'à direita', down: 'embaixo', left: 'à esquerda' };
+        falarSeguro('Parede ' + (dirNomes[dir] || '') + '! O passarinho não pode passar.');
         return;
     }
 
@@ -217,6 +285,7 @@ function tentarMover(dx, dy, dir) {
 
     atualizarHUD();
 
+    // Chegou na casinha?
     if (playerX === exitX && playerY === exitY) {
         faseCompleta();
     }
@@ -234,10 +303,10 @@ function ativarSonar() {
     };
 
     const parts = [];
-    parts.push(dirs.up ? 'Cima livre' : 'Cima bloqueada');
-    parts.push(dirs.right ? 'Direita livre' : 'Direita bloqueada');
-    parts.push(dirs.down ? 'Baixo livre' : 'Baixo bloqueada');
-    parts.push(dirs.left ? 'Esquerda livre' : 'Esquerda bloqueada');
+    parts.push(dirs.up ? 'Cima livre' : 'Cima bloqueado');
+    parts.push(dirs.right ? 'Direita livre' : 'Direita bloqueado');
+    parts.push(dirs.down ? 'Baixo livre' : 'Baixo bloqueado');
+    parts.push(dirs.left ? 'Esquerda livre' : 'Esquerda bloqueado');
 
     const frase = parts.join(', ');
     falarSeguro(frase);
@@ -246,9 +315,9 @@ function ativarSonar() {
 
 // ─── Atualizar HUD + barra de proximidade ────────────────────────
 function atualizarHUD() {
-    hudPos.textContent = 'Posi\u00e7\u00e3o: ' + (playerY + 1) + ', ' + (playerX + 1);
+    hudPos.textContent = 'Posição: ' + (playerY + 1) + ', ' + (playerX + 1);
     const dist = Math.abs(playerX - exitX) + Math.abs(playerY - exitY);
-    hudDist.textContent = 'Dist\u00e2ncia: ' + dist;
+    hudDist.textContent = 'Distância: ' + dist;
     const maxDist = (tamanho - 1) * 2;
     const pct = Math.round((1 - dist / maxDist) * 100);
     proxPreench.style.width = pct + '%';
@@ -256,16 +325,16 @@ function atualizarHUD() {
 
 // ─── Fase completa ───────────────────────────────────────────────
 function faseCompleta() {
+    somVitoria();
+
     if (faseAtual < fases.length - 1) {
-        somFase();
         faseAtual++;
-        const frase = 'Fase ' + faseAtual + ' completa! Pr\u00f3xima fase.';
+        const frase = 'Você chegou na casinha! 🏡 Fase ' + faseAtual + ' completa! Próxima fase.';
         falarSeguro(frase, () => {
-            setTimeout(() => iniciarFase(), 800);
+            setTimeout(() => iniciarFase(), 1000);
         });
         mostrarLegenda(frase);
     } else {
-        somVitoria();
         mostrarFinal();
     }
 }
@@ -273,7 +342,8 @@ function faseCompleta() {
 // ─── Tela final ──────────────────────────────────────────────────
 function mostrarFinal() {
     trocarTela(telaFinal);
-    const frase = 'Parab\u00e9ns! Voc\u00ea completou todas as 4 fases do labirinto sonoro!';
+    const frase = 'Parabéns! O passarinho encontrou todas as casinhas! ' +
+                  'Você completou todas as 4 fases do labirinto sonoro!';
     msgFinal.textContent = frase;
     falarSeguro(frase);
     mostrarLegenda(frase);
@@ -313,7 +383,7 @@ function onKeydown(e) {
     }
 }
 
-// ─── Inicializa\u00e7\u00e3o ─────────────────────────────────────────────
+// ─── Inicialização ───────────────────────────────────────────────
 btnStart.addEventListener('click', function() {
     faseAtual = 0;
     iniciarFase();
